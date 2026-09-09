@@ -1,0 +1,177 @@
+---
+title: "Directed Acyclic Graphs - Exemplos Capítulo 3"
+author: "Isabela Diniz Cia"
+format: pdf
+editor: source
+---
+
+# Educação superior aumenta os rendimentos
+
+## Explicação e Análise do Código
+Este código executa uma simulação de Monte Carlo baseada no modelo de capital humano do Capítulo 3 (Grafos Acíclicos Dirigidos)
+. O objetivo é demonstrar como o viés de seleção surge em estimações ingênuas e como a aplicação do Critério da Porta dos Fundos (Backdoor Criterion) permite recuperar o verdadeiro efeito causal
+
+```{r, return=FALSE}
+# Baixando as bibliotes
+library(tidyverse)
+library(broom)
+```
+
+```{r}
+# Geração da Amostra
+set.seed(1000)
+n <- 10000
+```
+
+**1. O Processo Gerador de Dados (DGP)**
+
+O código simula uma população fictícia de 10.000 pessoas criando cinco variáveis encadeadas segundo a estrutura do DAG de capital humano:
+
+- `background` (**B**): Fatores ambientais e genéticos não observados (inteligência, motivação).
+
+- `pe` (**PE**): Escolaridade dos pais, determinada pelo `background`.
+
+- `income` (**I**): Renda da família, influenciada pela `escolaridade dos pais` (**PE**).
+
+- `college` (**D**): A decisão de fazer faculdade (*variável de tratamento*), influenciada pelo `background`, pela `escolaridade dos pais` e pela `renda da família`.
+
+- `earnings` (**Y**): Salário do indivíduo (*variável de resultado*), determinado pela `faculdade` e pela `renda familiar`.
+
+O Valor Verdadeiro (**ATE**): Na equação do salário (`earnings`), o coeficiente atribuído à `faculdade` é exatamente 2.0. Portanto, o efeito causal médio real do ensino superior nos ganhos é de 2 unidades monetárias.
+
+
+```{r}
+# O Processo Gerador de Dados (DGP)
+data <- tibble(
+  background = rnorm(n), # Fatores não observados 
+  pe = 1 + 1 * background + rnorm(n), # Escolaridade dos pais
+  income = 1 + 5 * pe + rnorm(n), # Renda da família
+  college = 1 + 1 * background + 1 * pe + 1 * income + rnorm(n),
+  earnings = 1 + 2 * college + 1 * income + rnorm(n) #  (Resultado): Salário da pessoa.
+)
+```
+
+**2. Modelo Ingênuo (naive_model)**
+
+- Regressão: lm(earnings ~ college).
+- O Problema: A comparação simples de salários entre quem fez e quem não fez faculdade ignora que existem três caminhos da porta dos fundos (`backdoor paths`) abertos conectando a faculdade aos ganhos:
+
+$D \leftarrow I \rightarrow Y$
+
+$D \leftarrow PE \rightarrow I \rightarrow Y$
+
+$D \leftarrow B \rightarrow PE \rightarrow I \rightarrow Y$
+
+**Resultado:** Como essas portas dos fundos não foram bloqueadas, o modelo atribui aos estudos o efeito de variáveis de confusão (como vir de famílias mais pobres). Isso gera uma estimativa enviesada de 2,758.
+
+```{r}
+# Roda uma regressão simples de salário (earnings) em função apenas da faculdade (college)
+naive_model <- lm(earnings ~ college, data = data)
+summary(naive_model)
+```
+
+**3. Modelo Ajustado (adjusted_model)**
+
+- **Regressão:** `lm(earnings ~ college + income)`
+
+- **A Solução Causal:** Analisando os três caminhos da porta dos fundos, nota-se que a renda familiar (`income`) é um não-colisor presente em todos eles.
+
+- **Satisfação do Critério da Porta dos Fundos:** Controlar unicamente pela renda é minimamente suficiente para bloquear simultaneamente os três caminhos de confusão.
+
+- **Resultado:** O coeficiente estimado para a faculdade ajusta-se para 1,995 (com intervalo de confiança de 95% entre 1,98 e 2,01), isolando e recuperando com precisão o verdadeiro efeito causal de 2.0.
+
+```{r}
+# Inclui a renda familiar (income) como variável de controle na regressão
+adjusted_model <- lm(earnings ~ college + income, data = data)
+summary(adjusted_model)
+```
+
+## Lição Principal 
+Para eliminar o viés em uma pesquisa empírica, **não é necessário controlar todas as variáveis do universo**. Mapear o DAG do problema permite identificar o conjunto **minimamente suficiente** de covariáveis que satisfaz o critério da porta dos fundos, garantindo a identificação do efeito causal com eficiência estatística
+
+----
+
+# Discriminação de gênero no mercado de trabalho
+
+## Explicação e Análise do Código
+Este código em R executa uma simulação baseada no **Capítulo 3 (Grafos Acíclicos Dirigidos)** para demonstrar empiricamente como o viés de colisor (collider bias) pode perverter estimativas estatísticas ao estudar discriminação de gênero no mercado de trabalho
+
+```{r, return=FALSE}
+# Baixando as bibliotecas
+library(tidyverse)
+library(stargazer)
+```
+
+**1. O Processo Gerador de Dados (DGP)**
+
+O código cria uma população fictícia de 10.000 indivíduos seguindo as regras do DAG de discriminação:
+
+- `female` e `discrimination` ($D$): Metade da população é do sexo feminino e todas as mulheres sofrem discriminação ($D = \text{female}$)
+- ability ($A$): Habilidade individual não observada, sorteada de forma independente do gênero
+- `occupation` ($O$): Nível ocupacional ou cargo. É afetado positivamente pela habilidade ($+2 \times A$) e negativamente pela discriminação nas promoções ($-2 \times D$)3. A ocupação é um colisor no caminho $D \rightarrow O \leftarrow A \rightarrow Y$
+
+- `wage` ($Y$): Salário do indivíduo. É reduzido diretamente pela discriminação salarial ($-1 \times D$), e aumentado pela ocupação ($+1 \times O$) e pela habilidade ($+2 \times A$)
+
+**Valores Reais Programados no Código:**
+
+- Efeito Direto da Discriminação: $-1.0$.
+
+- Efeito Indireto (Barreira em Promoções): $-2.0 \times 1.0 = -2.0$.
+
+- Efeito Total Real da Discriminação: $-1.0 + (-2.0) = \mathbf{-3.0}$.
+
+```{r}
+set.seed(123)
+tb <- tibble(
+  female = ifelse(runif(10000) >= 0.5, 1, 0),
+  ability = rnorm(10000),
+  discrimination = female,  # Discrimination linked to being female
+  occupation = 1 + 2 * ability - 2 * discrimination + rnorm(10000),
+  wage = 1 - discrimination + occupation + 2 * ability + rnorm(10000)
+)
+```
+2. As Três Regressões e o Pacote stargazer
+
+**`lm_1` — Modelo Incondicional (wage ~ female):**
+
+- **O que faz:** Compara diretamente os salários de homens e mulheres sem incluir covariáveis.
+
+- **Resultado:** Captura o *efeito total da discriminação* (efeito direto mais a perda indireta por menor acesso a cargos altos). O coeficiente estimado fica em aproximadamente **-3,074**.
+
+**`lm_2` — Modelo Condicional Enviesado (wage ~ female + occupation):**
+
+- **O que faz:** Inclui a ocupação como controle para comparar homens e mulheres no mesmo cargo.
+
+- **O Problema do Colisor:** A ocupação ($O$) é um colisor no caminho $D \rightarrow O \leftarrow A \rightarrow Y$. Condicionar na ocupação bloqueia o efeito indireto real e *abre o caminho da porta dos fundos espúrio* entre discriminação e habilidade não observada.
+
+- **Resultado:** O viés de colisor introduz uma seleção artificial (mulheres no mesmo cargo precisam ter habilidade $A$ muito superior) que perverte o modelo, fazendo o coeficiente da discriminação mudar de sinal e se tornar falsamente positivo **(+0,601)**.
+
+**`lm_3` — Modelo Totalmente Condicional Imparcial (wage ~ female + occupation + ability):**
+
+- **O que faz:** Controla a ocupação e a habilidade não observada ($A$) simultaneamente.
+
+- **A Solução Causal:** Controlar pela habilidade fecha o caminho da porta dos fundos que havia sido aberto pelo colisor.
+
+- **Resultado:** O modelo consegue isolar e recuperar com precisão o *efeito causal direto* da discriminação salarial, retornando ao valor real próximo de **-0,994 ** (aproximadamente -1.0).
+
+**`stargazer(...)`:**
+
+- **Função:** Gera uma tabela comparativa formatada exibindo os resultados das três regressões lado a lado.
+
+```{r}
+# Regressions
+lm_1 <- lm(wage ~ female, tb)                          # Unconditional, biased
+lm_2 <- lm(wage ~ female + occupation, tb)             # Conditional, still biased
+lm_3 <- lm(wage ~ female + occupation + ability, tb)   # Fully conditional, unbiased
+
+# Display results with stargazer
+stargazer(lm_1, lm_2, lm_3, type = "text",
+          column.labels = c("Unconditional (Biased)", 
+                            "Conditional (Biased)", 
+                            "Fully Conditional (Unbiased)"),
+          dep.var.caption = "Dependent variable: Wage",
+          omit.stat = c("f", "ser")) 
+```
+
+## Lição principal
+Controlar por características do trabalho (como cargo ou ocupação) para tentar "limpar" a estimativa de discriminação é um exemplo clássico de **"controle ruim" (bad control)**. Como a habilidade individual ($A$) raramente é observada em dados reais, incluir a ocupação abre o viés de colisor e gera a ilusão estatística de que a discriminação não existe ou é positiva.
